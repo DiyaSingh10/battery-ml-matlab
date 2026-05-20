@@ -1,0 +1,445 @@
+clc;
+clear;
+close all;
+addID = @() annotation('textbox',[0.80 0.93 0.18 0.05], ...
+           'String','24BEE040', ...
+           'EdgeColor','none', ...
+           'HorizontalAlignment','right', ...
+           'FontWeight','bold');
+%% task1 - Statistical Analysis of Variables
+% Read data
+T = readtable("BC_35.csv");
+B = table2array(T);
+varNames = T.Properties.VariableNames;
+% Compute statistics (column-wise)
+Mean      = mean(B);
+Median    = median(B);
+StdDev    = std(B);
+Variance  = var(B);
+Minimum   = min(B);
+Maximum   = max(B);
+Skewness  = skewness(B);
+Kurtosis  = kurtosis(B);
+% Put into one matrix
+Stats = [Mean; Median; StdDev; Variance; Minimum; Maximum; Skewness; Kurtosis];
+% Create table
+Tab = array2table(Stats, ...
+    'VariableNames', {'Mean','Median','StdDev','Variance','Min','Max','Skewness','Kurtosis'}, ...
+    'RowNames', varNames);
+% Display
+disp('Statistical Analysis Results:');
+disp(Tab);
+
+%% task2 - Graphical Analysis (Histograms)
+% Loop through each variable
+for i = 1:length(varNames)
+    % histogram plotting
+    figure
+    addID()
+    histogram(rmmissing(B(:,i)));
+    title(['Histogram of ', varNames{i}])
+    xlabel(varNames{i})
+    ylabel('Statistical Frequency')
+    grid on
+        statsText = sprintf([ ...
+        'Mean = %.3f\n ' ...
+        'Median = %.3f\n ' ...
+        'StdDev = %.3f\n ' ...
+        'Variance = %.3f\n' ...
+        'Min = %.3f\n ' ...
+        'Max = %.3f\n ' ...
+        'Skewness = %.3f\n ' ...
+        'Kurtosis = %.3f'], ...
+         Mean(i), Median(i), StdDev(i), Variance(i), Minimum(i), Maximum(i), Skewness(i), Kurtosis(i));
+    % Display statistics on plot
+    text(0.99, 0.99, statsText, ...
+    'Units','normalized', ...
+    'HorizontalAlignment','right', ...
+    'VerticalAlignment','top', ...
+    'BackgroundColor','w', ...
+    'EdgeColor','k', ...
+    'Margin',5);
+end
+
+%% task3(A) - Correlation Analysis (Linear Correlation)
+% Compute Pearson Correlation Matrix
+R = corr(B, 'Type', 'Pearson');
+% Plot Heatmap
+figure('Name','Pearson Correlation Matrix','NumberTitle','off');
+addID()
+h = heatmap(varNames, varNames, R);
+% Formatting
+h.Title = 'Linear Pearson Correlation Matrix';
+h.Colormap = cool;
+h.ColorLimits = [-1 1];   % Correlation range
+h.CellLabelFormat = '%.2f'; % Show values
+h.MissingDataColor = [1 1 1];    
+h.MissingDataLabel = 'NaN';     
+
+%% task3(B) - Correlation Analysis (Non-Linear)
+% Compute Spearman Correlation Matrix
+R_spearman = corr(B, 'Type', 'Spearman');
+% Plot Heatmap
+figure('Name','Spearman Rank Correlation','NumberTitle','off');
+addID()
+h = heatmap(varNames, varNames, R);
+% Formatting
+h.Title = 'Non-linear Spearman Rank Correlation';
+h.Colormap = cool;
+h.ColorLimits = [-1 1];   % Correlation range
+h.CellLabelFormat = '%.2f'; % Show values
+h.MissingDataColor = [1 1 1];    
+h.MissingDataLabel = 'NaN';     
+
+%% task4 - Feature Selection for ML Modeling
+%%Keep Only Numeric Variables
+numericData = T(:, vartype('numeric'));
+%Check if Tavg Exists
+if ~ismember('Tavg', numericData.Properties.VariableNames)
+    error('Tavg is not numeric or not found in the dataset.');
+end
+
+%%Separate Target and Inputs
+% Target
+Y = numericData(:,end);
+% Inputs
+X = removevars(numericData,'Tavg');
+Xnames = X.Properties.VariableNames;
+Z = table2array(X);
+
+%%Correlation analysis
+Z_numeric = Z;
+Y_numeric = table2array(Y);
+cv = corr(Z_numeric, Y_numeric, 'Rows','complete');
+
+%%Statistical spread(Std Deviation)
+stdv = std(Z);
+
+%%Redundancy Removal
+% Correlation between features
+corrMatrix = corr(Z,'Rows','complete');
+% Threshold for redundancy
+rt = 0.85;
+
+%%Domain Relevance
+domainWeight = ones(length(Xnames));
+for i = 1:length(Xnames)
+    name = lower(Xnames{i});
+    if contains(name,{'Mean','Median','StdDev','Variance','Min','Max','Skewness','Kurtosis'})
+        domainWeight(i) = 1.5;   % More important
+    else
+        domainWeight(i) = 1.0;   % Normal importance
+    end
+end
+
+%% task5 - Artificial Neural Network(ANN)
+% Load Data 
+% HoldOut Partition (80% Train, 20% Test)
+c = cvpartition(height(T), "HoldOut", 0.20);
+trainingIdx = training(c);
+Train = T(trainingIdx, :);
+testIdx = test(c);
+Test = T(testIdx, :);
+% Train ANN Model
+% Artificial Neural Network Regression
+Mdl = fitrnet(Train, "Tavg", ...
+             "Standardize", true, ...
+             "LayerSizes", [20 10], ...
+             "Activations", "relu");
+
+% Actual Outputs
+YTrain_ANN = Train.Tavg;
+YTest_ANN  = Test.Tavg;
+% Predictions
+YTrainPred_ANN = predict(Mdl, Train);
+YTestPred_ANN  = predict(Mdl, Test);
+
+%%Performance Evaluation:
+% RMSE
+Train_RMSE_ANN = sqrt(mean((YTrain_ANN - YTrainPred_ANN).^2));
+Test_RMSE_ANN  = sqrt(mean((YTest_ANN  - YTestPred_ANN).^2));
+% R2 (Training)
+SS_res_ANN = sum((YTrain_ANN - YTrainPred_ANN).^2);
+SS_tot_ANN = sum((YTrain_ANN - mean(YTrain_ANN)).^2);
+R2_Train_ANN = 1 - (SS_res_ANN / SS_tot_ANN);
+% Display Results
+disp('=============================================')
+disp(' ARTIFICIAL NEURAL NETWORK(ANN) ')
+disp('=============================================')
+fprintf('Training RMSE : %.4f\n', Train_RMSE_ANN);
+fprintf('Testing RMSE  : %.4f\n', Test_RMSE_ANN);
+fprintf('Training R^2  : %.4f\n', R2_Train_ANN);
+
+%%Regression Plot:
+figure
+addID()
+% Training Regression
+subplot(1,2,1)
+scatter(YTrain_ANN, YTrainPred_ANN, 30, 'filled')
+hold on
+plot([min(YTrain_ANN) max(YTrain_ANN)], ...
+     [min(YTrain_ANN) max(YTrain_ANN)], ...
+     'r--', 'LineWidth', 1.5)
+
+xlabel('Actual Tavg')
+ylabel('Predicted Tavg')
+title('Training Data')
+grid on
+
+% Testing Regression
+subplot(1,2,2)
+scatter(YTest_ANN, YTestPred_ANN, 30, 'filled')
+hold on
+plot([min(YTest_ANN) max(YTest_ANN)], ...
+     [min(YTest_ANN) max(YTest_ANN)], ...
+     'r--', 'LineWidth', 1.5)
+
+xlabel('Actual Tavg')
+ylabel('Predicted Tavg')
+title('Testing Data')
+grid on
+
+%% task5 - Decision Tree
+%%Train Decision Tree Model
+% Decision Tree Regression
+Md2 = fitrtree(Train, "Tavg", ...
+              "MinLeafSize", 5, ...
+              "MaxNumSplits", 50);
+
+% Actual Outputs
+YTrain = Train.Tavg;
+YTest  = Test.Tavg;
+% Predictions
+YTrainPred = predict(Md2, Train);
+YTestPred  = predict(Md2, Test);
+
+%%Performance Evaluation
+% RMSE
+Train_RMSE = sqrt(mean((YTrain - YTrainPred).^2));
+Test_RMSE  = sqrt(mean((YTest  - YTestPred ).^2));
+% R2 (Training)
+SS_res = sum((YTrain - YTrainPred).^2);
+SS_tot = sum((YTrain - mean(YTrain)).^2);
+R2_Train = 1 - (SS_res / SS_tot);
+% Display Results
+disp('=============================================')
+disp(' DECISION TREE ')
+disp('=============================================')
+fprintf('Training RMSE : %.4f\n', Train_RMSE);
+fprintf('Testing RMSE  : %.4f\n', Test_RMSE);
+fprintf('Training R^2  : %.4f\n', R2_Train);
+
+% Regression Plot
+figure
+addID()
+% Training Regression
+subplot(1,2,1)
+scatter(YTrain, YTrainPred, 30, 'filled')
+hold on
+plot([min(YTrain) max(YTrain)], ...
+     [min(YTrain) max(YTrain)], ...
+     'r--', 'LineWidth', 1.5)
+
+xlabel('Actual Tavg')
+ylabel('Predicted Tavg')
+title('Training Data')
+grid on
+
+% Testing Regression
+subplot(1,2,2)
+scatter(YTest, YTestPred, 30, 'filled')
+hold on
+plot([min(YTest) max(YTest)], ...
+     [min(YTest) max(YTest)], ...
+     'r--', 'LineWidth', 1.5)
+
+xlabel('Actual Tavg')
+ylabel('Predicted Tavg')
+title('Testing Data')
+grid on
+
+%% task6 - Model Performance Evaluation
+% PERFORMANCE METRICS FUNCTION
+% This function computes:
+% R2, RMSE, MAE
+computeMetrics = @(Y, Ypred) struct( ...
+    'RMSE', sqrt(mean((Y - Ypred).^2)), ...
+    'MAE',  mean(abs(Y - Ypred)), ...
+    'R2',   1 - sum((Y - Ypred).^2)/sum((Y - mean(Y)).^2) );
+
+% CALCULATE METRICS FOR ANN
+Md1_Train = computeMetrics(YTrain_ANN, YTrainPred_ANN);
+Md1_Test  = computeMetrics(YTest_ANN,  YTestPred_ANN);
+% CALCULATE METRICS FOR DECISION TREE
+Md2_Train = computeMetrics(YTrain, YTrainPred);
+Md2_Test  = computeMetrics(YTest,  YTestPred);
+% CREATE COMPARISON TABLE
+Model = string([ ...
+    "ANN"
+    "ANN"
+    "Decision Tree"
+    "Decision Tree" ]);
+
+Dataset = string([ ...
+    "Training"
+    "Testing"
+    "Training"
+    "Testing" ]);
+
+R2 = [ ...
+    Md1_Train.R2; ...
+    Md1_Test.R2; ...
+    Md2_Train.R2; ...
+    Md2_Test.R2];
+
+RMSE = [ ...
+    Md1_Train.RMSE; ...
+    Md1_Test.RMSE; ...
+    Md2_Train.RMSE; ...
+    Md2_Test.RMSE];
+
+MAE = [ ...
+    Md1_Train.MAE; ...
+    Md1_Test.MAE; ...
+    Md2_Train.MAE; ...
+    Md2_Test.MAE];
+
+% Create table
+ResultsTable = table(Model, Dataset, R2, RMSE, MAE);
+ResultsTable.Model   = categorical(ResultsTable.Model);
+ResultsTable.Dataset = categorical(ResultsTable.Dataset);
+% DISPLAY RESULTS
+disp('=============================================')
+disp(' MODEL PERFORMANCE COMPARISON TABLE ')
+disp('=============================================')
+disp(ResultsTable)
+
+%% task7 - Regression & Prediciton Plots
+%%ADVANCED REGRESSION & ERROR ANALYSIS PLOTS (ANN)
+figure('Name','ANN','Color','w');
+addID()
+sgtitle('ANN','FontSize',14,'FontWeight','bold');
+% 1. REGRESSION PLOT (TEST DATA)
+subplot(2,2,1)
+scatter(YTest_ANN, YTestPred_ANN, 15, 'b', 'filled')
+hold on
+% Best fit line
+p = polyfit(YTest_ANN, YTestPred_ANN, 1);
+yfit = polyval(p, YTest);
+plot(YTest_ANN, yfit, 'r-', 'LineWidth', 2)
+% Ideal line (y = x)
+plot([min(YTest_ANN) max(YTest_ANN)], ...
+     [min(YTest_ANN) max(YTest_ANN)], ...
+     'k--', 'LineWidth', 1.5)
+
+xlabel('Actual Tavg')
+ylabel('Predicted Tavg')
+title('1. Regression Plot (Test Data)')
+legend('Predictions','Best Fit Line','Ideal (y=x)','Location','best')
+grid on
+
+% 2. PRED vs ACTUAL (TRAINING - SORTED)
+subplot(2,2,2)
+% Sort training data
+[YTrain_sorted, idx1] = sort(YTrain_ANN);
+YTrainPred_sorted = YTrainPred_ANN(idx1);
+plot(YTrain_sorted,'k','LineWidth',1.5)
+hold on
+plot(YTrainPred_sorted,'r--','LineWidth',1.5)
+xlabel('Samples (Sorted)')
+ylabel('Temperature')
+title('2. Pred vs Actual (Training)')
+legend('Actual','Predicted','Location','best')
+grid on
+
+% 3. PRED vs ACTUAL (TESTING - SORTED)
+subplot(2,2,3)
+% Sort testing data
+[YTest_sorted, idx2] = sort(YTest_ANN);
+YTestPred_sorted = YTestPred_ANN(idx2);
+plot(YTest_sorted,'k','LineWidth',1.5)
+hold on
+plot(YTestPred_sorted,'g--','LineWidth',1.5)
+xlabel('Samples (Sorted)')
+ylabel('Temperature')
+title('3. Pred vs Actual (Testing)')
+legend('Actual','Predicted','Location','best')
+grid on
+
+% 4. RESIDUAL PLOT (TEST ERRORS)
+subplot(2,2,4)
+% Residuals
+residuals = YTest_ANN - YTestPred_ANN;
+scatter(1:length(residuals), residuals, 15, 'r', 'filled')
+hold on
+yline(0,'k--','LineWidth',1.5)
+xlabel('Sample Index')
+ylabel('Error (Actual - Pred)')
+title('4. Residual Plot (Test Errors)')
+legend('Residuals','Zero Error Line','Location','best')
+grid on
+
+%%ADVANCED REGRESSION & ERROR ANALYSIS PLOTS (DECISION TREE)
+figure('Name','Decision Tree','Color','w');
+addID()
+subtitle('24BEE040')
+sgtitle('Decision Tree','FontSize',14,'FontWeight','bold');
+% 1. REGRESSION PLOT (TEST DATA)
+subplot(2,2,1)
+scatter(YTest, YTestPred, 15, 'b', 'filled')
+hold on
+% Best fit line
+p = polyfit(YTest, YTestPred, 1);
+yfit = polyval(p, YTest);
+plot(YTest, yfit, 'r-', 'LineWidth', 2)
+% Ideal line (y = x)
+plot([min(YTest) max(YTest)], ...
+     [min(YTest) max(YTest)], ...
+     'k--', 'LineWidth', 1.5)
+
+xlabel('Actual Tavg')
+ylabel('Predicted Tavg')
+title('1. Regression Plot (Test Data)')
+legend('Predictions','Best Fit Line','Ideal (y=x)','Location','best')
+grid on
+
+%%2. PRED vs ACTUAL (TRAINING - SORTED)
+subplot(2,2,2)
+% Sort training data
+[YTrain_sorted, idx1] = sort(YTrain);
+YTrainPred_sorted = YTrainPred(idx1);
+plot(YTrain_sorted,'k','LineWidth',1.5)
+hold on
+plot(YTrainPred_sorted,'r--','LineWidth',1.5)
+xlabel('Samples (Sorted)')
+ylabel('Temperature')
+title('2. Pred vs Actual (Training)')
+legend('Actual','Predicted','Location','best')
+grid on
+
+%%3. PRED vs ACTUAL (TESTING - SORTED)
+subplot(2,2,3)
+% Sort testing data
+[YTest_sorted, idx2] = sort(YTest);
+YTestPred_sorted = YTestPred(idx2);
+plot(YTest_sorted,'k','LineWidth',1.5)
+hold on
+plot(YTestPred_sorted,'g--','LineWidth',1.5)
+xlabel('Samples (Sorted)')
+ylabel('Temperature')
+title('3. Pred vs Actual (Testing)')
+legend('Actual','Predicted','Location','best')
+grid on
+
+%%4. RESIDUAL PLOT (TEST ERRORS)
+subplot(2,2,4)
+% Residuals
+residuals = YTest - YTestPred;
+scatter(1:length(residuals), residuals, 15, 'r', 'filled')
+hold on
+yline(0,'k--','LineWidth',1.5)
+xlabel('Sample Index')
+ylabel('Error (Actual - Pred)')
+title('4. Residual Plot (Test Errors)')
+legend('Residuals','Zero Error Line','Location','best')
+grid on
